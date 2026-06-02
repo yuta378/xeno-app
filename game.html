@@ -58,7 +58,23 @@
       <div class="log-title">📜 ゲームログ</div>
       <div id="gameLog" class="log-list"></div>
     </div>
+<!-- 死神・皇帝：捨て札選択モーダル -->
+<div id="discardModal" class="modal hidden">
+  <div class="modal-content">
+    <h3 id="discardTitle">手札から1枚を捨てる</h3>
+    <p class="modal-desc">捨てるカードを選んでください</p>
+    <div id="discardCards" class="guess-cards-grid"></div>
+  </div>
+</div>
 
+<!-- 賢者：3枚から1枚選ぶモーダル -->
+<div id="sageModal" class="modal hidden">
+  <div class="modal-content">
+    <h3>🧙 賢者の選択</h3>
+    <p class="modal-desc">山札から3枚引きました。1枚を選んでください</p>
+    <div id="sageCards" class="guess-cards-grid"></div>
+  </div>
+</div>
   </div>
 
   <!-- 兵士：カード宣言モーダル -->
