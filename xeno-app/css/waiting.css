@@ -1,0 +1,177 @@
+/* ===== ヘッダー ===== */
+.waiting-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.page-subtitle {
+  color: #aaaaaa;
+  font-size: 14px;
+  margin-top: 6px;
+  letter-spacing: 1px;
+}
+
+/* ===== ルームIDカード ===== */
+.room-id-card {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.room-label {
+  font-size: 12px;
+  color: #888;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.room-id {
+  font-size: 42px;
+  font-weight: bold;
+  letter-spacing: 12px;
+  color: #e2b96f;
+  text-shadow: 0 0 16px rgba(226, 185, 111, 0.4);
+  margin-bottom: 12px;
+}
+
+.btn-copy {
+  background-color: #0f3460;
+  color: #e2b96f;
+  border: 1px solid #e2b96f44;
+  border-radius: 6px;
+  padding: 6px 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-bottom: 8px;
+}
+
+.btn-copy:hover {
+  background-color: #1a4a7a;
+}
+
+.room-hint {
+  font-size: 12px;
+  color: #666;
+}
+
+/* ===== プレイヤー一覧 ===== */
+.players-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.player-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #0f3460;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.player-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-icon {
+  font-size: 20px;
+}
+
+.player-row-name {
+  font-size: 15px;
+  font-weight: bold;
+  color: #eaeaea;
+}
+
+/* ===== ホストバッジ ===== */
+.host-badge {
+  font-size: 10px;
+  background-color: #e2b96f;
+  color: #1a1a2e;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-weight: bold;
+}
+
+/* ===== 準備状況バッジ ===== */
+.status-badge {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-weight: bold;
+}
+
+.status-badge.waiting {
+  background-color: #2a2a4a;
+  color: #888;
+}
+
+.status-badge.ready {
+  background-color: #1a4a2a;
+  color: #4CAF50;
+}
+
+/* ===== アクションエリア ===== */
+.action-area {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ===== ゲーム開始ボタン ===== */
+.btn-start {
+  width: 100%;
+  padding: 16px;
+  font-size: 18px;
+  font-weight: bold;
+  background: linear-gradient(135deg, #e2b96f, #f0cc8a);
+  color: #1a1a2e;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(226, 185, 111, 0.3);
+  animation: pulse 1.5s infinite;
+}
+
+.btn-start:hover {
+  transform: scale(1.02);
+  box-shadow: 0 6px 20px rgba(226, 185, 111, 0.5);
+}
+
+@keyframes pulse {
+  0%   { box-shadow: 0 4px 16px rgba(226, 185, 111, 0.3); }
+  50%  { box-shadow: 0 4px 24px rgba(226, 185, 111, 0.6); }
+  100% { box-shadow: 0 4px 16px rgba(226, 185, 111, 0.3); }
+}
+
+/* ===== 無効状態のボタン ===== */
+.btn-primary:disabled {
+  background-color: #555;
+  color: #999;
+  cursor: not-allowed;
+}
+
+/* ===== 戻るボタン ===== */
+.btn-logout {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 16px;
+  padding: 8px;
+  width: 100%;
+  text-align: center;
+  transition: color 0.2s;
+}
+
+.btn-logout:hover {
+  color: #aaaaaa;
+}
