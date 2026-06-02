@@ -83,13 +83,24 @@ export function renderDeck(count) {
 }
 
 // ===== 公開カードを描画 =====
-export function renderOpenCards(cardIds) {
+// ===== 捨て札を描画 =====
+export function renderDiscardPile(cardIds) {
+  const openCardsEl    = document.getElementById("openCards");
   openCardsEl.innerHTML = "";
 
-  cardIds.forEach(id => {
+  if (cardIds.length === 0) {
+    const el      = document.createElement("span");
+    el.textContent = "なし";
+    el.style.color = "#555";
+    el.style.fontSize = "12px";
+    openCardsEl.appendChild(el);
+    return;
+  }
+
+  // 最新5枚だけ表示
+  [...cardIds].slice(-5).reverse().forEach(id => {
     const card = getCardById(id);
     if (!card) return;
-
     const el      = document.createElement("div");
     el.className  = "game-card-small";
     el.innerHTML  = `
