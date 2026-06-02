@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XENO</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- タイトル -->
+    <h1 class="title">XENO</h1>
+    <p class="subtitle">カードゲーム</p>
+
+    <!-- ログインフォーム -->
+    <div class="card">
+      <h2>プレイヤー名を入力</h2>
+      <input
+        type="text"
+        id="playerName"
+        placeholder="名前を入力してください"
+        maxlength="10"
+      />
+      <p id="errorMsg" class="error hidden">名前を入力してください</p>
+      <button id="startBtn" class="btn-primary">ゲームを始める</button>
+    </div>
+
+  </div>
+
+  <!-- auth.jsの読み込み -->
+  <script type="module" src="js/auth.js"></script>
+
+</body>
+</html>
