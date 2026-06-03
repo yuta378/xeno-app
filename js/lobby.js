@@ -34,13 +34,9 @@ onAuthStateChanged(auth, (user) => {
 });
 
 // ランダムなルームIDを生成（6文字）
+// ランダムな3桁の数字ルームIDを生成（100〜999）
 function generateRoomId() {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let id = "";
-  for (let i = 0; i < 6; i++) {
-    id += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return id;
+  return String(Math.floor(Math.random() * 900) + 100);
 }
 
 // ===== ルームを作成する =====
