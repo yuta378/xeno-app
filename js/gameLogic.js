@@ -333,14 +333,14 @@ export async function playCard(
     gs.status     = "finished";
     gs.winner     = winner;
     gs.endReason  = "eliminated";
-  } else if (
-    !gs.deathPending &&
+   } else if (
+    !gs.deathPending  &&
     !gs.emperorPending &&
-    gs.deck.length === 0 &&
-    Number(playedCardId) !== 7
+    !gs.sagePending   &&
+    gs.deck.length === 0
   ) {
     resolveDecEmpty(gs);
-  } else if (!gs.deathPending && !gs.emperorPending) {
+  } else if (!gs.deathPending && !gs.emperorPending && !gs.sagePending) {
     // ターン交代
     nextTurn(gs, actingUid, opponentUid);
   }
@@ -427,8 +427,8 @@ export async function resolveSageChoice(roomId, gameState, actingUid, opponentUi
   gs.deck.unshift(...returned);
 
   gs.sageChoices       = null;
+  gs.sagePending       = null;
   gs.sageActive[actingUid] = false;
-
   gs.log.push({
     turn : gs.turnNumber,
     text : `🧙 賢者：${getCardById(chosenCardId)?.name}を選んだ。`
