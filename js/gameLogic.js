@@ -65,6 +65,9 @@ export async function initializeGame(roomId, playerUids) {
       [playerUids[1]] : false
     },
 
+    // 賢者の待機状態（即時発動用）
+    sagePending : null,
+
     // 賢者の選択肢（一時保存）
     sageChoices : null,
 
@@ -257,9 +260,20 @@ export async function playCard(
     }
 
     // ── 7: 賢者（選択）─────────────────────────────
+      // ── 7: 賢者（選択）─────────────────────────────
     case 7: {
-      gs.sageActive[actingUid] = true;
-      logText = `🧙 賢者：次の自分のターンに山札から3枚引いて1枚を選べる！`;
+      const drawCount = Math.min(3, gs.deck.length);
+      if (drawCount > 0) {
+        const choices = [];
+        for (let i = 0; i < drawCount; i++) {
+          choices.push(gs.deck.pop());
+        }
+        gs.sageChoices = choices;
+        gs.sagePending = { actingUid: actingUid };
+        logText = `🧙 賢者：山札から${drawCount}枚引いた。1枚を選んでください！`;
+      } else {
+        logText = `🧙 賢者：山札が空のため効果なし。`;
+      }
       break;
     }
 
