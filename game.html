@@ -14,6 +14,10 @@
 
   <div class="game-wrapper">
 
+    <!-- カード効果一覧ボタン -->
+<div class="card-list-btn-wrap">
+  <button id="cardListBtn" class="btn-card-list">📖 カード効果一覧</button>
+</div>
     <!-- 相手エリア -->
     <div class="player-area opponent-area">
       <div class="area-label" id="opponentLabel">相手</div>
@@ -76,7 +80,116 @@
   </div>
 </div>
   </div>
+<!-- カード効果一覧モーダル -->
+<div id="cardListModal" class="modal hidden">
+  <div class="modal-content card-list-modal">
+    <h3>📖 カード効果一覧</h3>
+    <div class="card-list-grid">
 
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">👦</span>
+          <span class="cli-name">少年</span>
+          <span class="cli-val">1</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">2枚目を出すと「公開処刑」を発動。1枚目は効果なし。</p>
+      </div>
+
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">⚔️</span>
+          <span class="cli-name">兵士</span>
+          <span class="cli-val">2</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">相手のカード名を宣言。正解なら相手を脱落させる。</p>
+      </div>
+
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">🔮</span>
+          <span class="cli-name">占師</span>
+          <span class="cli-val">3</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">相手の手札を見る。</p>
+      </div>
+
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">👸</span>
+          <span class="cli-name">乙女</span>
+          <span class="cli-val">4</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">次の自分のターンまで相手の効果を無効化する。</p>
+      </div>
+
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">💀</span>
+          <span class="cli-name">死神</span>
+          <span class="cli-val">5</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">相手に1枚引かせ、2枚から1枚を捨てさせる。英雄なら転生可。</p>
+      </div>
+
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">🏅</span>
+          <span class="cli-name">貴族</span>
+          <span class="cli-val">6</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">相手と手札を比較。数字の小さい方が脱落する。</p>
+      </div>
+
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">🧙</span>
+          <span class="cli-name">賢者</span>
+          <span class="cli-val">7</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">山札から3枚引き、1枚を選んで手札にする。残りは戻す。</p>
+      </div>
+
+      <div class="card-list-item">
+        <div class="cli-header">
+          <span class="cli-emoji">✨</span>
+          <span class="cli-name">精霊</span>
+          <span class="cli-val">8</span>
+          <span class="cli-count">×2</span>
+        </div>
+        <p class="cli-desc">相手と手札を交換する。</p>
+      </div>
+
+      <div class="card-list-item highlight">
+        <div class="cli-header">
+          <span class="cli-emoji">👑</span>
+          <span class="cli-name">皇帝</span>
+          <span class="cli-val">9</span>
+          <span class="cli-count">×1</span>
+        </div>
+        <p class="cli-desc">相手に1枚引かせ手札を公開、1枚捨てさせる。転生不可。</p>
+      </div>
+
+      <div class="card-list-item highlight">
+        <div class="cli-header">
+          <span class="cli-emoji">🦸</span>
+          <span class="cli-name">英雄</span>
+          <span class="cli-val">10</span>
+          <span class="cli-count">×1</span>
+        </div>
+        <p class="cli-desc">自分から出せない。死神・貴族・精霊で捨てられた時に転生発動（1回限り・皇帝除く）。</p>
+      </div>
+
+    </div>
+    <button id="closeCardListBtn" class="btn-primary" style="margin-top:16px;">閉じる</button>
+  </div>
+</div>
   <!-- 兵士：カード宣言モーダル -->
   <div id="guessModal" class="modal hidden">
     <div class="modal-content">
@@ -107,7 +220,17 @@
       <button id="returnLobbyBtn" class="btn-primary">ロビーに戻る</button>
     </div>
   </div>
+  <!-- カード一覧モーダル制御 -->
+  <script>
+    document.getElementById("cardListBtn").addEventListener("click", () => {
+      document.getElementById("cardListModal").classList.remove("hidden");
+    });
+    document.getElementById("closeCardListBtn").addEventListener("click", () => {
+      document.getElementById("cardListModal").classList.add("hidden");
+    });
+  </script>
 
+  <script type="module" src="js/game.js"></script>
   <script type="module" src="js/game.js"></script>
 
 </body>
