@@ -46,9 +46,9 @@ export async function initializeGame(roomId, playerUids) {
     // 英雄：転生済みフラグ
     heroRevived : { [p0]: false, [p1]: false },
 
-    // 賢者：即時選択用
-    sagePending : null,   // { actingUid }
-    sageChoices : null,   // [cardId, ...]
+   // 賢者：次ターン開始時に3枚引くフラグ
+    sageActive  : { [p0]: false, [p1]: false },
+    sageChoices : null,   // 3枚引いた選択肢を一時保存
 
     // 死神：捨て択待ち
     deathPending   : null,  // { targetUid, nextTurnUid }
@@ -209,18 +209,12 @@ export async function playCard(
       break;
     }
 
-    // ── 賢者（7）──────────────────────────────────
+     // ── 賢者（7）──────────────────────────────────
     case 7: {
-      const count = Math.min(3, gs.deck.length);
-      if (count > 0) {
-        const choices = [];
-        for (let i = 0; i < count; i++) choices.push(gs.deck.pop());
-        gs.sageChoices = choices;
-        gs.sagePending = { actingUid };
-        logText = `🧙 賢者：山札から${count}枚引いた。1枚を選ぶ！`;
-      } else {
-        logText = `🧙 賢者：山札が空。効果なし。`;
-      }
+      // 次の自分のターン開始時に3枚引くフラグを立てるだけ
+      // ターンは通常通り相手に渡す
+      gs.sageActive[actingUid] = true;
+      logText = `🧙 賢者：次の自分のターン開始時に山札から3枚引いて1枚を選べる！`;
       break;
     }
 
@@ -272,11 +266,11 @@ export async function playCard(
   if (gameOver) {
     finishGame(gs, opponentUid);
 
-  } else if (gs.deathPending || gs.emperorPending || gs.sagePending) {
-    // ペンディング中はターン交代しない（待機）
+   } else if (gs.deathPending || gs.emperorPending) {
+    // 死神・皇帝のペンディング中はターン交代しない（待機）
 
   } else {
-    // 通常のターン交代
+    // 通常のターン交代（賢者も含む）
     doNextTurn(gs, actingUid, opponentUid);
   }
 
