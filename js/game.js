@@ -109,10 +109,16 @@ function listenGame() {
       revealModal.classList.remove("hidden");
     }
 
-    // ===== 賢者：カード選択モーダル（自分が使った場合）=====
-    if (gs.sagePending?.actingUid === currentUser.uid && gs.sageChoices) {
-      showSageModal(gs.sageChoices);
-      actionArea.classList.add("hidden");
+        // ===== 賢者：自分のターン開始時に3枚引く =====
+    if (isMyTurn && gs.sageActive?.[currentUser.uid]) {
+      if (!gs.sageChoices) {
+        // まだ3枚引いていない → 3枚引いてFirestoreに保存
+        if (!isProcessing) await drawSageCards(gs);
+      } else {
+        // 3枚引き済み → 選択モーダルを表示
+        showSageModal(gs.sageChoices);
+        actionArea.classList.add("hidden");
+      }
       return;
     }
 
@@ -165,6 +171,19 @@ async function drawCard(gs) {
   isProcessing = true;
   const newGs = JSON.parse(JSON.stringify(gs));
   newGs.hands[currentUser.uid].push(newGs.deck.pop());
+  await updateDoc(doc(db, "rooms", roomId), { gameState: newGs });
+  isProcessing = false;
+}
+// ===== 賢者：山札から3枚引いてsageChoicesに保存 =====
+async function drawSageCards(gs) {
+  isProcessing = true;
+  const newGs  = JSON.parse(JSON.stringify(gs));
+  const count  = Math.min(3, newGs.deck.length);
+  const choices = [];
+  for (let i = 0; i < count; i++) {
+    choices.push(newGs.deck.pop());
+  }
+  newGs.sageChoices = choices;
   await updateDoc(doc(db, "rooms", roomId), { gameState: newGs });
   isProcessing = false;
 }
@@ -307,9 +326,9 @@ function showSageModal(choices) {
       sageModal.classList.add("hidden");
       try {
         await resolveSageChoice(
-          roomId, currentGameState,
-          currentUser.uid, opponentUid, id
-        );
+        roomId, currentGameState,
+        currentUser.uid, id  // opponentUid不要・削除
+      );
       } finally {
         isProcessing = false;
       }
