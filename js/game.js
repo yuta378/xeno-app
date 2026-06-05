@@ -1,19 +1,22 @@
 // ===================================================
-// game.js - 公式XENO対応 ゲーム制御
+// game.js - XENO ゲーム制御（完全版）
 // ===================================================
 import { auth, db } from "./firebase-config.js";
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { doc, onSnapshot, updateDoc, getDoc }
+  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import {
-  doc, onSnapshot, updateDoc, getDoc
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { playCard, initializeGame, resolveDiscard, resolveSageChoice } from "./gameLogic.js";
+  playCard, initializeGame,
+  resolveDiscard, resolveSageChoice, checkDeckEmpty
+} from "./gameLogic.js";
 import { getCardById, getGuessableCards } from "./deck.js";
 import {
   updateTurnBanner, renderMyHand, renderOpponentHand,
   renderDeck, renderDiscardPile, renderLog, showResultOverlay
 } from "./ui.js";
 
-// ===== DOM要素 =====
+// ===== DOM =====
 const actionArea      = document.getElementById("actionArea");
 const playCardBtn     = document.getElementById("playCardBtn");
 const guessModal      = document.getElementById("guessModal");
@@ -31,7 +34,7 @@ const returnLobbyBtn  = document.getElementById("returnLobbyBtn");
 const myLabel         = document.getElementById("myLabel");
 const opponentLabel   = document.getElementById("opponentLabel");
 
-// ===== 状態管理 =====
+// ===== 状態 =====
 const roomId     = localStorage.getItem("roomId");
 const isHost     = localStorage.getItem("isHost") === "true";
 const playerName = localStorage.getItem("playerName") || "プレイヤー";
@@ -41,6 +44,7 @@ let opponentUid      = null;
 let selectedCardId   = null;
 let currentGameState = null;
 let unsubscribe      = null;
+let isProcessing     = false;  // 二重操作防止
 
 if (!roomId) window.location.href = "lobby.html";
 
@@ -49,8 +53,7 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = "index.html"; return; }
   currentUser = user;
 
-  const roomRef  = doc(db, "rooms", roomId);
-  const roomSnap = await getDoc(roomRef);
+  const roomSnap = await getDoc(doc(db, "rooms", roomId));
   if (!roomSnap.exists()) { window.location.href = "lobby.html"; return; }
 
   const roomData   = roomSnap.data();
@@ -68,19 +71,17 @@ onAuthStateChanged(auth, async (user) => {
 
 // ===== Firestoreリアルタイム監視 =====
 function listenGame() {
-  const roomRef = doc(db, "rooms", roomId);
-  unsubscribe = onSnapshot(roomRef, async (snap) => {
+  unsubscribe = onSnapshot(doc(db, "rooms", roomId), async (snap) => {
     if (!snap.exists()) { window.location.href = "lobby.html"; return; }
-
-    const gs      = snap.data().gameState;
+    const gs = snap.data().gameState;
     if (!gs) return;
+
     currentGameState = gs;
+    const isMyTurn   = gs.currentTurn === currentUser.uid;
+    const myHand     = gs.hands[currentUser.uid] || [];
+    const oppHand    = gs.hands[opponentUid]     || [];
 
-    const isMyTurn = gs.currentTurn === currentUser.uid;
-    const myHand   = gs.hands[currentUser.uid] || [];
-    const oppHand  = gs.hands[opponentUid]     || [];
-
-    // UI更新
+    // ===== UI 描画 =====
     updateTurnBanner(isMyTurn);
     renderMyHand(myHand, isMyTurn, selectedCardId);
     renderOpponentHand(oppHand);
@@ -88,88 +89,104 @@ function listenGame() {
     renderDiscardPile(gs.discardPile || []);
     renderLog(gs.log);
 
-    // 占師モーダル
-    if (gs.revealed && gs.revealed.uid === currentUser.uid) {
-      const revCard = getCardById(gs.revealed.cardId);
+    // ===== ゲーム終了 =====
+    if (gs.status === "finished") {
+      closeAllModals();
+      if (unsubscribe) unsubscribe();
+      setTimeout(() => showResultOverlay(gs, currentUser.uid), 800);
+      return;
+    }
+
+    // ===== 占師：手札確認モーダル =====
+    if (gs.revealed && gs.revealed.forUid === currentUser.uid) {
+      const rc = getCardById(gs.revealed.cardId);
       revealCardDisp.innerHTML = `
         <div class="card-display">
-          <span class="card-emoji">${revCard.emoji}</span>
-          <span class="card-name">${revCard.name}</span>
-          <span class="card-value">${revCard.value}</span>
+          <span class="card-emoji">${rc?.emoji}</span>
+          <span class="card-name">${rc?.name}</span>
+          <span class="card-value">${rc?.value}</span>
         </div>`;
       revealModal.classList.remove("hidden");
     }
 
-    // ゲーム終了
-    if (gs.status === "finished") {
-      if (unsubscribe) unsubscribe();
-      setTimeout(() => showResultOverlay(gs, currentUser.uid), 600);
-      return;
-    }
-
-    // 死神の待機（自分が対象の場合）
-    if (gs.deathPending && gs.deathPending.targetUid === currentUser.uid) {
-      showDiscardModal(gs.hands[currentUser.uid], false);
-      return;
-    }
-
-    // 皇帝・少年の待機（自分が対象の場合）
-    if (gs.emperorPending && gs.emperorPending.targetUid === currentUser.uid) {
-      showDiscardModal(gs.hands[currentUser.uid], true);
-      return;
-    }
-
-       // 賢者の選択（即時発動・ターン関係なく自分が使った場合）
-    if (gs.sagePending && gs.sagePending.actingUid === currentUser.uid && gs.sageChoices) {
+    // ===== 賢者：カード選択モーダル（自分が使った場合）=====
+    if (gs.sagePending?.actingUid === currentUser.uid && gs.sageChoices) {
       showSageModal(gs.sageChoices);
+      actionArea.classList.add("hidden");
       return;
     }
 
-    // 自分のターン処理
+    // ===== 死神：捨て札選択モーダル（自分が対象の場合）=====
+    if (gs.deathPending?.targetUid === currentUser.uid) {
+      showDiscardModal(myHand, false, gs.deathPending.nextTurnUid);
+      actionArea.classList.add("hidden");
+      return;
+    }
+
+    // ===== 皇帝・少年：捨て札選択モーダル（自分が対象の場合）=====
+    if (gs.emperorPending?.targetUid === currentUser.uid) {
+      showDiscardModal(myHand, true, gs.emperorPending.nextTurnUid);
+      actionArea.classList.add("hidden");
+      return;
+    }
+
+    // ===== 自分のターン処理 =====
     if (isMyTurn) {
-      if (myHand.length === 1 && gs.deck.length > 0 && !gs.sageActive[currentUser.uid]) {
-        await drawCard(gs);
+      // 手札が1枚 → まず山札から1枚引く
+      if (myHand.length === 1) {
+        if (gs.deck.length > 0) {
+          if (!isProcessing) await drawCard(gs);
+        } else {
+          // 山札なし → デッキ切れチェック
+          const newGs = JSON.parse(JSON.stringify(gs));
+          checkDeckEmpty(newGs);
+          if (newGs.status === "finished") {
+            await updateDoc(doc(db, "rooms", roomId), { gameState: newGs });
+          }
+        }
         return;
       }
+      // 手札が2枚 → プレイ選択
       if (myHand.length === 2) {
         actionArea.classList.remove("hidden");
+        updatePlayBtn();
       }
     } else {
+      // 相手のターン
       actionArea.classList.add("hidden");
       selectedCardId = null;
+      updatePlayBtn();
     }
-    updatePlayBtn();
   });
 }
 
-// ===== カードを1枚引く =====
+// ===== 山札から1枚引く =====
 async function drawCard(gs) {
+  isProcessing = true;
   const newGs = JSON.parse(JSON.stringify(gs));
-  const drawnCardId = newGs.deck.pop();
-  newGs.hands[currentUser.uid].push(drawnCardId);
-  const roomRef = doc(db, "rooms", roomId);
-  await updateDoc(roomRef, { gameState: newGs });
+  newGs.hands[currentUser.uid].push(newGs.deck.pop());
+  await updateDoc(doc(db, "rooms", roomId), { gameState: newGs });
+  isProcessing = false;
 }
 
-
-
-// ===== 手札カードクリック =====
+// ===== 手札カードをクリック =====
 document.getElementById("myCards").addEventListener("click", (e) => {
   const cardEl = e.target.closest(".game-card");
   if (!cardEl || !currentGameState) return;
 
-  const isMyTurn = currentGameState.currentTurn === currentUser.uid;
-  const myHand   = currentGameState.hands[currentUser.uid] || [];
+  const gs       = currentGameState;
+  const isMyTurn = gs.currentTurn === currentUser.uid;
+  const myHand   = gs.hands[currentUser.uid] || [];
+
   if (!isMyTurn || myHand.length < 2) return;
 
-  const clickedId = Number(cardEl.dataset.cardId);
-  // 英雄（10）は選択不可
-  if (clickedId === 10) {
-    alert("英雄は自分から出すことができません！");
+  const cid = Number(cardEl.dataset.cardId);
+  if (cid === 10) {
+    alert("🦸 英雄は自分からプレイできません！");
     return;
   }
 
-  selectedCardId = clickedId;
+  selectedCardId = cid;
   renderMyHand(myHand, true, selectedCardId);
   updatePlayBtn();
 });
@@ -177,18 +194,19 @@ document.getElementById("myCards").addEventListener("click", (e) => {
 // ===== プレイボタン更新 =====
 function updatePlayBtn() {
   if (selectedCardId) {
-    const card = getCardById(selectedCardId);
-    playCardBtn.disabled    = false;
-    playCardBtn.textContent = `「${card.name}」をプレイする`;
+    const card            = getCardById(selectedCardId);
+    playCardBtn.disabled  = false;
+    playCardBtn.textContent = `「${card?.name}」をプレイする`;
   } else {
-    playCardBtn.disabled    = true;
+    playCardBtn.disabled  = true;
     playCardBtn.textContent = "カードを選択してください";
   }
 }
 
-// ===== プレイボタン押下 =====
+// ===== プレイボタン =====
 playCardBtn.addEventListener("click", () => {
-  if (!selectedCardId) return;
+  if (!selectedCardId || isProcessing) return;
+  // 兵士（2）→ 宣言モーダル
   if (selectedCardId === 2) {
     showGuessModal();
   } else {
@@ -196,26 +214,32 @@ playCardBtn.addEventListener("click", () => {
   }
 });
 
-// ===== カードをプレイ =====
+// ===== カードをプレイ実行 =====
 async function executePlayCard(cardId, guessId = null) {
-  if (!currentUser || !opponentUid || !currentGameState) return;
+  if (!currentUser || !opponentUid || !currentGameState || isProcessing) return;
+  isProcessing = true;
   playCardBtn.disabled = true;
   actionArea.classList.add("hidden");
   selectedCardId = null;
   try {
-    await playCard(roomId, currentGameState, currentUser.uid, opponentUid, cardId, guessId);
-  } catch (error) {
-    console.error("カードプレイエラー:", error);
-    playCardBtn.disabled = false;
+    await playCard(
+      roomId, currentGameState,
+      currentUser.uid, opponentUid,
+      cardId, guessId
+    );
+  } catch (err) {
+    console.error("プレイエラー:", err);
     actionArea.classList.remove("hidden");
+    playCardBtn.disabled = false;
+  } finally {
+    isProcessing = false;
   }
 }
 
 // ===== 兵士：宣言モーダル =====
 function showGuessModal() {
-  const cards = getGuessableCards();
   guessCardsEl.innerHTML = "";
-  cards.forEach(card => {
+  getGuessableCards().forEach(card => {
     const btn     = document.createElement("button");
     btn.className = "guess-card-btn";
     btn.innerHTML = `<span>${card.emoji}</span><span>${card.name}</span><span class="card-val">${card.value}</span>`;
@@ -230,63 +254,82 @@ function showGuessModal() {
 cancelGuessBtn.addEventListener("click", () => guessModal.classList.add("hidden"));
 
 // ===== 死神・皇帝：捨て札選択モーダル =====
-function showDiscardModal(handCardIds, isEmperorEffect) {
-  discardTitle.textContent  = isEmperorEffect
-    ? "👑 手札を全て公開して1枚を選んで捨てる"
-    : "💀 手札から1枚を選んで捨てる";
+function showDiscardModal(handCardIds, isEmperorEffect, nextTurnUid) {
+  discardTitle.textContent = isEmperorEffect
+    ? "👑 手札を公開。1枚を選んで捨てる（英雄は転生不可）"
+    : "💀 手札から1枚を選んで捨てる（英雄なら転生可）";
+
   discardCardsEl.innerHTML = "";
+  // 既にモーダルが開いていたら再描画しない
+  if (!discardModal.classList.contains("hidden")) return;
 
   handCardIds.forEach(id => {
-    const card  = getCardById(id);
+    const card = getCardById(id);
     if (!card) return;
-
-    // 皇帝効果では英雄も捨てられる（転生なし）
     const btn     = document.createElement("button");
     btn.className = "guess-card-btn";
     btn.innerHTML = `<span>${card.emoji}</span><span>${card.name}</span><span class="card-val">${card.value}</span>`;
     btn.addEventListener("click", async () => {
+      if (isProcessing) return;
+      isProcessing = true;
       discardModal.classList.add("hidden");
-      const actingUid   = currentUser.uid;
-      const opponentId  = opponentUid;
-      await resolveDiscard(
-        roomId,
-        currentGameState,
-        actingUid,
-        opponentId,
-        id,
-        isEmperorEffect
-      );
+      try {
+        await resolveDiscard(
+          roomId, currentGameState,
+          currentUser.uid,  // 捨てる人
+          nextTurnUid,      // 次のターンのプレイヤー
+          id,
+          isEmperorEffect
+        );
+      } finally {
+        isProcessing = false;
+      }
     });
     discardCardsEl.appendChild(btn);
   });
-
   discardModal.classList.remove("hidden");
 }
 
-// ===== 賢者：カード選択モーダル =====
+// ===== 賢者：選択モーダル =====
 function showSageModal(choices) {
+  // 既にモーダルが開いていたら再描画しない
+  if (!sageModal.classList.contains("hidden")) return;
   sageCardsEl.innerHTML = "";
   choices.forEach(id => {
-    const card  = getCardById(id);
+    const card = getCardById(id);
     if (!card) return;
     const btn     = document.createElement("button");
     btn.className = "guess-card-btn";
     btn.innerHTML = `<span>${card.emoji}</span><span>${card.name}</span><span class="card-val">${card.value}</span>`;
     btn.addEventListener("click", async () => {
+      if (isProcessing) return;
+      isProcessing = true;
       sageModal.classList.add("hidden");
-      await resolveSageChoice(roomId, currentGameState, currentUser.uid, opponentUid, id);
+      try {
+        await resolveSageChoice(
+          roomId, currentGameState,
+          currentUser.uid, opponentUid, id
+        );
+      } finally {
+        isProcessing = false;
+      }
     });
     sageCardsEl.appendChild(btn);
   });
   sageModal.classList.remove("hidden");
 }
 
-// ===== 占師モーダルを閉じる =====
+// ===== 占師：閉じる =====
 closeRevealBtn.addEventListener("click", async () => {
   revealModal.classList.add("hidden");
-  const roomRef = doc(db, "rooms", roomId);
-  await updateDoc(roomRef, { "gameState.revealed": null });
+  await updateDoc(doc(db, "rooms", roomId), { "gameState.revealed": null });
 });
+
+// ===== 全モーダルを閉じる =====
+function closeAllModals() {
+  [guessModal, revealModal, discardModal, sageModal]
+    .forEach(m => m.classList.add("hidden"));
+}
 
 // ===== ロビーに戻る =====
 returnLobbyBtn.addEventListener("click", () => {
