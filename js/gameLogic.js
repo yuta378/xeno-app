@@ -1,92 +1,64 @@
 // ===================================================
-// gameLogic.js - 公式XENOゲームロジック
+// gameLogic.js - XENOゲームロジック（完全版）
 // ===================================================
 import { db } from "./firebase-config.js";
 import {
-  doc,
-  updateDoc
+  doc, updateDoc
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { createDeck, shuffleDeck, getCardById } from "./deck.js";
 
 // ===================================================
-// ゲームを初期化する（ホストのみ実行）
+// ゲーム初期化（ホストのみ）
 // ===================================================
 export async function initializeGame(roomId, playerUids) {
-
   const deck = shuffleDeck(createDeck());
 
-  // 各プレイヤーに1枚ずつ配る
-  const hand0 = deck.pop();
-  const hand1 = deck.pop();
+  // 各プレイヤーに1枚配る
+  const hand0 = deck.pop().id;
+  const hand1 = deck.pop().id;
 
-  // 転生札（裏向きで1枚除外）
+  // 転生札（裏向き除外・1枚）
   const reincarnationCard = deck.pop().id;
 
+  const p0 = playerUids[0];
+  const p1 = playerUids[1];
+
   const gameState = {
-    deck               : deck.map(c => c.id),
+    deck              : deck.map(c => c.id),
+    reincarnationCard : reincarnationCard,
+    hands             : { [p0]: [hand0], [p1]: [hand1] },
+    discardPile       : [],
+    currentTurn       : p0,       // ホストが先攻
+    turnNumber        : 1,
+    status            : "playing",
+    winner            : null,
+    endReason         : null,
 
-    // 転生札（英雄の転生時に使用）
-    reincarnationCard  : reincarnationCard,
+    // 乙女の保護（自分のターン開始時に解除）
+    protected : { [p0]: false, [p1]: false },
 
-    // 各プレイヤーの手札
-    hands : {
-      [playerUids[0]] : [hand0.id],
-      [playerUids[1]] : [hand1.id]
-    },
+    // 脱落フラグ
+    eliminated : { [p0]: false, [p1]: false },
 
-    // 捨て札（公開）
-    discardPile : [],
-
-    // 現在のターンのUID（ホストが先攻）
-    currentTurn  : playerUids[0],
-    turnNumber   : 1,
-    status       : "playing",
-    winner       : null,
-    endReason    : null,
-
-    // 乙女の保護状態
-    protected : {
-      [playerUids[0]] : false,
-      [playerUids[1]] : false
-    },
-
-    // 脱落状態
-    eliminated : {
-      [playerUids[0]] : false,
-      [playerUids[1]] : false
-    },
-
-    // 少年の革命フラグ（1枚目が捨て札にあるか）
+    // 少年：1枚目が出たかフラグ
     boyPlayed : false,
 
-    // 賢者フラグ（次ターンに3枚引く）
-    sageActive : {
-      [playerUids[0]] : false,
-      [playerUids[1]] : false
-    },
+    // 英雄：転生済みフラグ
+    heroRevived : { [p0]: false, [p1]: false },
 
-    // 賢者の待機状態（即時発動用）
-    sagePending : null,
+    // 賢者：即時選択用
+    sagePending : null,   // { actingUid }
+    sageChoices : null,   // [cardId, ...]
 
-    // 賢者の選択肢（一時保存）
-    sageChoices : null,
+    // 死神：捨て択待ち
+    deathPending   : null,  // { targetUid, nextTurnUid }
 
-    // 英雄の転生フラグ（1回のみ）
-    heroRevived : {
-      [playerUids[0]] : false,
-      [playerUids[1]] : false
-    },
+    // 皇帝・少年革命：捨て択待ち
+    emperorPending : null,  // { targetUid, nextTurnUid }
 
-    // 死神フラグ（相手が捨て札を選ぶ待機中）
-    deathPending : null,
+    // 占師：確認表示用
+    revealed : null,        // { forUid, cardId }
 
-    // 皇帝・少年フラグ（相手が捨て札を選ぶ待機中）
-    emperorPending : null,
-
-    // 占師で見た手札（一時的に表示）
-    revealed : null,
-
-    // ゲームログ
     log : []
   };
 
@@ -95,384 +67,364 @@ export async function initializeGame(roomId, playerUids) {
 }
 
 // ===================================================
-// カードをプレイする
+// カードをプレイする（actingUid がカードを出す）
 // ===================================================
 export async function playCard(
-  roomId,
-  gameState,
-  actingUid,
-  opponentUid,
-  playedCardId,
-  guessCardId = null
+  roomId, gameState,
+  actingUid, opponentUid,
+  playedCardId, guessCardId = null
 ) {
-  const gs         = JSON.parse(JSON.stringify(gameState));
-  const playedCard = getCardById(playedCardId);
+  const gs  = deepCopy(gameState);
+  const pid = Number(playedCardId);
 
   // 手札からプレイしたカードを除く
-  gs.hands[actingUid] = gs.hands[actingUid].filter(id => id !== Number(playedCardId));
+  gs.hands[actingUid] = gs.hands[actingUid].filter(id => id !== pid);
+  gs.discardPile.push(pid);
 
-  // 捨て札に追加
-  gs.discardPile.push(Number(playedCardId));
-
-  const actingCardId      = gs.hands[actingUid][0];
-  const actingCard        = getCardById(actingCardId);
-  const opponentCardId    = gs.hands[opponentUid]?.[0];
-  const opponentCard      = getCardById(opponentCardId);
-  const opponentProtected = gs.protected[opponentUid];
+  // 残った自分の手札（効果比較用）
+  const myCard  = getCardById(gs.hands[actingUid][0]);
+  // 相手の手札
+  const oppCard = getCardById(gs.hands[opponentUid]?.[0]);
+  const oppId   = gs.hands[opponentUid]?.[0];
+  const oppProt = gs.protected[opponentUid];
 
   let logText  = "";
   let gameOver = false;
 
-  switch (Number(playedCardId)) {
+  // ===== カード効果 =====
+  switch (pid) {
 
-    // ── 1: 少年（革命）─────────────────────────────
+    // ── 少年（1）──────────────────────────────────
     case 1: {
-      const prevBoyPlayed = gs.boyPlayed;
-      if (!prevBoyPlayed) {
-        // 1枚目：効果なし・フラグON
+      if (!gs.boyPlayed) {
         gs.boyPlayed = true;
         logText = `👦 少年：1枚目。効果なし。次に少年が出ると革命発動！`;
       } else {
-        // 2枚目：公開処刑（皇帝と同じ効果）
+        // 2枚目 → 公開処刑（皇帝と同じ処理）
         gs.boyPlayed = false;
-        if (opponentProtected) {
-          logText = `👦 少年（革命）：相手は乙女に守られています。効果なし。`;
+        if (oppProt) {
+          logText = `👦 少年（革命）：相手は乙女に守られている。効果なし。`;
         } else if (gs.deck.length > 0) {
-          // 相手に1枚引かせる
-          const drawnId = gs.deck.pop();
-          gs.hands[opponentUid].push(drawnId);
-          // 皇帝と同じ：emperorPendingをセット
+          gs.hands[opponentUid].push(gs.deck.pop());
           gs.emperorPending = {
-            targetUid  : opponentUid,
-            actingUid  : actingUid,
-            isBoy      : true
+            targetUid   : opponentUid,
+            nextTurnUid : opponentUid   // 効果処理後は相手のターン
           };
-          logText = `👦 少年（革命）：相手に1枚引かせた。相手は手札から1枚を捨てる。`;
+          logText = `👦 少年（革命）：相手に1枚引かせた。相手は1枚を捨てる。`;
         } else {
-          logText = `👦 少年（革命）：山札が空のため効果なし。`;
+          logText = `👦 少年（革命）：山札が空。効果なし。`;
         }
       }
       break;
     }
 
-    // ── 2: 兵士（捜査）─────────────────────────────
+    // ── 兵士（2）──────────────────────────────────
     case 2: {
-      if (opponentProtected) {
-        logText = `⚔️ 兵士：相手は乙女に守られています。効果なし。`;
-      } else if (Number(guessCardId) === Number(opponentCardId)) {
-        // 英雄を持っている場合→転生チェック
-        if (Number(opponentCardId) === 10 && !gs.heroRevived[opponentUid]) {
-          // 転生発動
+      if (oppProt) {
+        logText = `⚔️ 兵士：相手は乙女に守られている。効果なし。`;
+        break;
+      }
+      const guessId = Number(guessCardId);
+      if (guessId === Number(oppId)) {
+        // 英雄なら転生チェック
+        if (Number(oppId) === 10 && !gs.heroRevived[opponentUid] && gs.reincarnationCard !== null) {
+          const revId               = gs.reincarnationCard;
+          gs.hands[opponentUid]     = [revId];
+          gs.reincarnationCard      = null;
           gs.heroRevived[opponentUid] = true;
-          const reviveCardId          = gs.reincarnationCard;
-          gs.hands[opponentUid]       = [reviveCardId];
-          gs.reincarnationCard        = null;
-          logText = `⚔️ 兵士：大正解！しかし相手の英雄が転生！転生札(${getCardById(reviveCardId)?.name})で復活！`;
+          logText = `⚔️ 兵士：正解！だが英雄が転生！${getCardById(revId)?.name}で復活。`;
         } else {
           gs.eliminated[opponentUid] = true;
           gameOver = true;
-          logText  = `⚔️ 兵士：大正解！相手の手札は「${opponentCard?.name}」。相手が脱落！`;
+          logText  = `⚔️ 兵士：正解！相手の手札は「${oppCard?.name}」。相手脱落！`;
         }
       } else {
-        const guessedCard = getCardById(guessCardId);
-        logText = `⚔️ 兵士：はずれ。（宣言：${guessedCard?.name ?? "不明"}）効果なし。`;
+        logText = `⚔️ 兵士：はずれ（宣言：${getCardById(guessId)?.name}）。効果なし。`;
       }
       break;
     }
 
-    // ── 3: 占師（透視）─────────────────────────────
+    // ── 占師（3）──────────────────────────────────
     case 3: {
-      if (opponentProtected) {
-        logText    = `🔮 占師：相手は乙女に守られています。効果なし。`;
-        gs.revealed = null;
+      if (oppProt) {
+        logText = `🔮 占師：相手は乙女に守られている。効果なし。`;
       } else {
-        gs.revealed = { uid: actingUid, cardId: opponentCardId };
+        gs.revealed = { forUid: actingUid, cardId: oppId };
         logText     = `🔮 占師：相手の手札を確認した。`;
       }
       break;
     }
 
-    // ── 4: 乙女（守護）─────────────────────────────
+    // ── 乙女（4）──────────────────────────────────
     case 4: {
       gs.protected[actingUid] = true;
       logText = `👸 乙女：次の自分のターンまで効果を無効化！`;
       break;
     }
 
-    // ── 5: 死神（疫病）─────────────────────────────
+    // ── 死神（5）──────────────────────────────────
     case 5: {
-      if (opponentProtected) {
-        logText = `💀 死神：相手は乙女に守られています。効果なし。`;
+      if (oppProt) {
+        logText = `💀 死神：相手は乙女に守られている。効果なし。`;
       } else if (gs.deck.length > 0) {
-        // 相手に1枚引かせる
-        const drawnId = gs.deck.pop();
-        gs.hands[opponentUid].push(drawnId);
-        // deathPendingをセット（相手が2枚から1枚捨てる）
+        gs.hands[opponentUid].push(gs.deck.pop());
         gs.deathPending = {
-          targetUid : opponentUid,
-          actingUid : actingUid
+          targetUid   : opponentUid,
+          nextTurnUid : opponentUid   // 効果処理後は相手のターン
         };
-        logText = `💀 死神：相手に1枚引かせた。相手は2枚の手札から1枚を捨てる。`;
+        logText = `💀 死神：相手に1枚引かせた。相手は1枚を捨てる。`;
       } else {
-        logText = `💀 死神：山札が空のため効果なし。`;
+        logText = `💀 死神：山札が空。効果なし。`;
       }
       break;
     }
 
-    // ── 6: 貴族（対決）─────────────────────────────
+    // ── 貴族（6）──────────────────────────────────
     case 6: {
-      if (opponentProtected) {
-        logText = `🏅 貴族：相手は乙女に守られています。効果なし。`;
+      if (oppProt) {
+        logText = `🏅 貴族：相手は乙女に守られている。効果なし。`;
+        break;
+      }
+      const av = myCard?.value  ?? 0;
+      const ov = oppCard?.value ?? 0;
+      if (av === ov) {
+        logText = `🏅 貴族：同値（${av}）。引き分け。効果なし。`;
       } else {
-        const actV = actingCard?.value  ?? 0;
-        const oppV = opponentCard?.value ?? 0;
-        if (actV > oppV) {
-          // 英雄転生チェック
-          if (Number(opponentCardId) === 10 && !gs.heroRevived[opponentUid]) {
-            gs.heroRevived[opponentUid] = true;
-            const revId                 = gs.reincarnationCard;
-            gs.hands[opponentUid]       = [revId];
-            gs.reincarnationCard        = null;
-            logText = `🏅 貴族：自分(${actingCard?.name} ${actV}) > 相手(${opponentCard?.name} ${oppV})。相手の英雄が転生！`;
-          } else {
-            gs.eliminated[opponentUid] = true;
-            gameOver = true;
-            logText  = `🏅 貴族：自分(${actingCard?.name} ${actV}) > 相手(${opponentCard?.name} ${oppV})。相手が脱落！`;
-          }
-        } else if (actV < oppV) {
-          // 自分の英雄転生チェック
-          if (Number(actingCardId) === 10 && !gs.heroRevived[actingUid]) {
-            gs.heroRevived[actingUid] = true;
-            const revId               = gs.reincarnationCard;
-            gs.hands[actingUid]       = [revId];
-            gs.reincarnationCard      = null;
-            logText = `🏅 貴族：自分(${actingCard?.name} ${actV}) < 相手(${opponentCard?.name} ${oppV})。自分の英雄が転生！`;
-          } else {
-            gs.eliminated[actingUid] = true;
-            gameOver = true;
-            logText  = `🏅 貴族：自分(${actingCard?.name} ${actV}) < 相手(${opponentCard?.name} ${oppV})。自分が脱落！`;
-          }
+        const loserUid  = av < ov ? actingUid  : opponentUid;
+        const loserCard = av < ov ? myCard      : oppCard;
+        const winCard   = av < ov ? oppCard     : myCard;
+        // 敗者が英雄なら転生チェック
+        if (loserCard?.id === 10 && !gs.heroRevived[loserUid] && gs.reincarnationCard !== null) {
+          const revId           = gs.reincarnationCard;
+          gs.hands[loserUid]    = [revId];
+          gs.reincarnationCard  = null;
+          gs.heroRevived[loserUid] = true;
+          logText = `🏅 貴族：${loserCard.name}(${av < ov ? av : ov}) < ${winCard.name}(${av < ov ? ov : av})。英雄が転生！${getCardById(revId)?.name}で復活。`;
         } else {
-          logText = `🏅 貴族：同値(${actV})。引き分け。効果なし。`;
+          gs.eliminated[loserUid] = true;
+          gameOver = true;
+          logText = `🏅 貴族：${loserCard?.name}(${av < ov ? av : ov}) < ${winCard?.name}(${av < ov ? ov : av})。${loserUid === actingUid ? "自分" : "相手"}が脱落！`;
         }
       }
       break;
     }
 
-    // ── 7: 賢者（選択）─────────────────────────────
-      // ── 7: 賢者（選択）─────────────────────────────
+    // ── 賢者（7）──────────────────────────────────
     case 7: {
-      const drawCount = Math.min(3, gs.deck.length);
-      if (drawCount > 0) {
+      const count = Math.min(3, gs.deck.length);
+      if (count > 0) {
         const choices = [];
-        for (let i = 0; i < drawCount; i++) {
-          choices.push(gs.deck.pop());
-        }
+        for (let i = 0; i < count; i++) choices.push(gs.deck.pop());
         gs.sageChoices = choices;
-        gs.sagePending = { actingUid: actingUid };
-        logText = `🧙 賢者：山札から${drawCount}枚引いた。1枚を選んでください！`;
+        gs.sagePending = { actingUid };
+        logText = `🧙 賢者：山札から${count}枚引いた。1枚を選ぶ！`;
       } else {
-        logText = `🧙 賢者：山札が空のため効果なし。`;
+        logText = `🧙 賢者：山札が空。効果なし。`;
       }
       break;
     }
 
-    // ── 8: 精霊（交換）─────────────────────────────
+    // ── 精霊（8）──────────────────────────────────
     case 8: {
-      if (opponentProtected) {
-        logText = `✨ 精霊：相手は乙女に守られています。効果なし。`;
+      if (oppProt) {
+        logText = `✨ 精霊：相手は乙女に守られている。効果なし。`;
       } else {
-        const tmpHand            = [...gs.hands[actingUid]];
-        gs.hands[actingUid]      = [...gs.hands[opponentUid]];
-        gs.hands[opponentUid]    = tmpHand;
+        const tmp             = [...gs.hands[actingUid]];
+        gs.hands[actingUid]   = [...gs.hands[opponentUid]];
+        gs.hands[opponentUid] = tmp;
         logText = `✨ 精霊：相手と手札を交換した！`;
       }
       break;
     }
 
-    // ── 9: 皇帝（公開処刑）─────────────────────────
+    // ── 皇帝（9）──────────────────────────────────
     case 9: {
-      if (opponentProtected) {
-        logText = `👑 皇帝：相手は乙女に守られています。効果なし。`;
+      if (oppProt) {
+        logText = `👑 皇帝：相手は乙女に守られている。効果なし。`;
       } else if (gs.deck.length > 0) {
-        // 相手に1枚引かせる（転生不可なので英雄でも転生なし）
-        const drawnId = gs.deck.pop();
-        gs.hands[opponentUid].push(drawnId);
+        gs.hands[opponentUid].push(gs.deck.pop());
         gs.emperorPending = {
-          targetUid : opponentUid,
-          actingUid : actingUid,
-          isBoy     : false
+          targetUid   : opponentUid,
+          nextTurnUid : opponentUid
         };
-        logText = `👑 皇帝：相手に1枚引かせた。相手は手札を公開して1枚を捨てる。`;
+        logText = `👑 皇帝：相手に1枚引かせた。相手は手札を公開して1枚捨てる。`;
       } else {
-        logText = `👑 皇帝：山札が空のため効果なし。`;
+        logText = `👑 皇帝：山札が空。効果なし。`;
       }
       break;
     }
 
-    // ── 10: 英雄（場に出せない）────────────────────
+    // ── 英雄（10）：出せない ───────────────────────
     case 10: {
-      // 英雄は自発的にプレイできない
-      // 強制的に手札に戻す
-      gs.hands[actingUid].push(Number(playedCardId));
+      gs.hands[actingUid].push(pid);
       gs.discardPile.pop();
-      logText = `🦸 英雄：英雄は自分からプレイできません！`;
+      logText = `🦸 英雄：自分からプレイできません！`;
       break;
     }
 
     default:
-      logText = `不明なカードが使われました。`;
+      logText = `不明なカード(${pid})が使われた。`;
   }
 
-  // ===== ゲームログに追加 =====
   gs.log.push({ turn: gs.turnNumber, text: logText });
 
-  // ===== ゲーム終了チェック =====
+  // ===== 終了・継続判定 =====
   if (gameOver) {
-    const winner  = Object.keys(gs.eliminated).find(uid => !gs.eliminated[uid]);
-    gs.status     = "finished";
-    gs.winner     = winner;
-    gs.endReason  = "eliminated";
-   } else if (
-    !gs.deathPending  &&
-    !gs.emperorPending &&
-    !gs.sagePending   &&
-    gs.deck.length === 0
-  ) {
-    resolveDecEmpty(gs);
-  } else if (!gs.deathPending && !gs.emperorPending && !gs.sagePending) {
-    // ターン交代
-    nextTurn(gs, actingUid, opponentUid);
+    finishGame(gs, opponentUid);
+
+  } else if (gs.deathPending || gs.emperorPending || gs.sagePending) {
+    // ペンディング中はターン交代しない（待機）
+
+  } else {
+    // 通常のターン交代
+    doNextTurn(gs, actingUid, opponentUid);
   }
 
-  const roomRef = doc(db, "rooms", roomId);
-  await updateDoc(roomRef, { gameState: gs });
+  await saveGameState(roomId, gs);
   return gs;
 }
 
 // ===================================================
-// 死神・皇帝/少年の「捨てるカードを選ぶ」処理
+// 死神・皇帝/少年 → 捨て札選択の解決
 // ===================================================
-export async function resolveDiscard(roomId, gameState, actingUid, opponentUid, discardCardId, isEmperorEffect) {
-  const gs = JSON.parse(JSON.stringify(gameState));
+export async function resolveDiscard(
+  roomId, gameState,
+  chooserUid,      // 捨て札を選ぶプレイヤー
+  nextTurnUid,     // 次にターンが来るプレイヤー
+  discardCardId,
+  isEmperorEffect
+) {
+  const gs  = deepCopy(gameState);
+  const cid = Number(discardCardId);
 
   // 選んだカードを手札から捨てる
-  gs.hands[actingUid] = gs.hands[actingUid].filter(id => id !== Number(discardCardId));
-  gs.discardPile.push(Number(discardCardId));
+  gs.hands[chooserUid] = gs.hands[chooserUid].filter(id => id !== cid);
+  gs.discardPile.push(cid);
 
-  let logText = "";
+  let logText  = "";
+  let gameOver = false;
 
   if (isEmperorEffect) {
-    // 皇帝・少年の効果：英雄は転生不可
-    if (Number(discardCardId) === 10) {
-      gs.eliminated[actingUid] = true;
-      gs.status                = "finished";
-      gs.winner                = opponentUid;
-      gs.endReason             = "eliminated";
-      logText = `👑 皇帝効果：相手が英雄を捨てた。英雄は転生不可！相手が脱落！`;
+    // 皇帝・少年革命：英雄でも転生不可
+    if (cid === 10) {
+      gs.eliminated[chooserUid] = true;
+      gameOver = true;
+      logText  = `👑 皇帝効果：英雄を捨てた。転生不可！脱落！`;
     } else {
-      logText = `👑 皇帝効果：相手が「${getCardById(discardCardId)?.name}」を捨てた。`;
+      logText = `👑 皇帝効果：「${getCardById(cid)?.name}」を捨てた。`;
     }
     gs.emperorPending = null;
   } else {
-    // 死神の効果：英雄は転生可能
-    if (Number(discardCardId) === 10 && !gs.heroRevived[actingUid]) {
-      gs.heroRevived[actingUid] = true;
-      const revId               = gs.reincarnationCard;
-      gs.hands[actingUid]       = [revId];
-      gs.reincarnationCard      = null;
-      logText = `💀 死神効果：相手が英雄を捨てた。英雄が転生！転生札(${getCardById(revId)?.name})で復活！`;
-    } else if (Number(discardCardId) === 10 && gs.heroRevived[actingUid]) {
-      gs.eliminated[actingUid] = true;
-      gs.status                = "finished";
-      gs.winner                = opponentUid;
-      gs.endReason             = "eliminated";
-      logText = `💀 死神効果：相手が英雄を捨てた。転生済みのため脱落！`;
+    // 死神：英雄なら転生可
+    if (cid === 10 && !gs.heroRevived[chooserUid] && gs.reincarnationCard !== null) {
+      const revId           = gs.reincarnationCard;
+      gs.hands[chooserUid]  = [revId];
+      gs.reincarnationCard  = null;
+      gs.heroRevived[chooserUid] = true;
+      logText = `💀 死神効果：英雄を捨てた。転生！${getCardById(revId)?.name}で復活。`;
+    } else if (cid === 10) {
+      gs.eliminated[chooserUid] = true;
+      gameOver = true;
+      logText  = `💀 死神効果：英雄を捨てた。転生不可！脱落！`;
     } else {
-      logText = `💀 死神効果：相手が「${getCardById(discardCardId)?.name}」を捨てた。`;
+      logText = `💀 死神効果：「${getCardById(cid)?.name}」を捨てた。`;
     }
     gs.deathPending = null;
   }
 
   gs.log.push({ turn: gs.turnNumber, text: logText });
 
-  // ゲーム終了していなければターン交代
-  if (gs.status !== "finished") {
-    const originalActing   = isEmperorEffect
-      ? gs.emperorPending?.actingUid ?? opponentUid
-      : gs.deathPending?.actingUid   ?? opponentUid;
-    nextTurn(gs, opponentUid, actingUid);
+  if (gameOver) {
+    // 相手（捨てさせた側）が勝者
+    const winnerUid = Object.keys(gs.eliminated).find(u => !gs.eliminated[u]);
+    finishGame(gs, winnerUid);
+  } else {
+    doNextTurn(gs, null, nextTurnUid);
   }
 
-  if (gs.deck.length === 0 && gs.status !== "finished") {
-    resolveDecEmpty(gs);
-  }
-
-  const roomRef = doc(db, "rooms", roomId);
-  await updateDoc(roomRef, { gameState: gs });
+  await saveGameState(roomId, gs);
   return gs;
 }
 
 // ===================================================
-// 賢者の選択処理（3枚から1枚を選ぶ）
+// 賢者 → カード選択の解決
 // ===================================================
-export async function resolveSageChoice(roomId, gameState, actingUid, opponentUid, chosenCardId) {
-  const gs = JSON.parse(JSON.stringify(gameState));
+export async function resolveSageChoice(
+  roomId, gameState,
+  actingUid, opponentUid,
+  chosenCardId
+) {
+  const gs  = deepCopy(gameState);
+  const cid = Number(chosenCardId);
 
-  const choices        = gs.sageChoices || [];
-  gs.hands[actingUid]  = [Number(chosenCardId)];
-
-  // 選ばなかったカードを山札に戻す（末尾に）
-  const returned = choices.filter(id => id !== Number(chosenCardId));
+  const choices = gs.sageChoices || [];
+  // 選んだカードを手札に
+  gs.hands[actingUid] = [cid];
+  // 選ばなかったカードを山札の先頭に戻す
+  const returned = choices.filter(id => id !== cid);
   gs.deck.unshift(...returned);
 
-  gs.sageChoices       = null;
-  gs.sagePending       = null;
-  gs.sageActive[actingUid] = false;
+  gs.sageChoices = null;
+  gs.sagePending = null;
+
   gs.log.push({
     turn : gs.turnNumber,
-    text : `🧙 賢者：${getCardById(chosenCardId)?.name}を選んだ。`
+    text : `🧙 賢者：「${getCardById(cid)?.name}」を選んだ。残り${returned.length}枚を山札に戻した。`
   });
 
-  // ターン交代
-  nextTurn(gs, actingUid, opponentUid);
-
-  if (gs.deck.length === 0 && gs.status !== "finished") {
-    resolveDecEmpty(gs);
-  }
-
-  const roomRef = doc(db, "rooms", roomId);
-  await updateDoc(roomRef, { gameState: gs });
+  doNextTurn(gs, actingUid, opponentUid);
+  await saveGameState(roomId, gs);
   return gs;
 }
 
 // ===================================================
-// ターン交代の共通処理
+// 共通：ターン交代
 // ===================================================
-function nextTurn(gs, actingUid, opponentUid) {
+function doNextTurn(gs, currentUid, nextUid) {
   gs.turnNumber++;
-  gs.currentTurn = opponentUid;
-
-  // 乙女の保護は自分のターン開始時に解除
-  gs.protected[opponentUid] = false;
+  gs.currentTurn = nextUid;
+  // 次のプレイヤーの乙女保護を解除（自分のターン開始時に解除）
+  if (currentUid) gs.protected[currentUid] = false;
 }
 
 // ===================================================
-// デッキ切れによるゲーム終了
+// 共通：ゲーム終了処理
 // ===================================================
-function resolveDecEmpty(gs) {
+function finishGame(gs, winnerUid) {
+  // 全員脱落チェック
+  const allElim = Object.values(gs.eliminated).every(v => v);
+  gs.status    = "finished";
+  gs.winner    = allElim ? "draw" : winnerUid;
+  gs.endReason = allElim ? "allEliminated" : "eliminated";
+  if (allElim) {
+    gs.log.push({ turn: gs.turnNumber, text: `💥 全員脱落！引き分け（DRAW）！` });
+  }
+}
+
+// ===================================================
+// 共通：デッキ切れ処理
+// ===================================================
+export function checkDeckEmpty(gs) {
+  if (gs.deck.length > 0 || gs.status === "finished") return;
   const uids = Object.keys(gs.hands);
-  const val0 = getCardById(gs.hands[uids[0]]?.[0])?.value ?? 0;
-  const val1 = getCardById(gs.hands[uids[1]]?.[0])?.value ?? 0;
-
-  if (val0 > val1)      gs.winner = uids[0];
-  else if (val1 > val0) gs.winner = uids[1];
-  else                  gs.winner = "draw";
-
+  const v0   = getCardById(gs.hands[uids[0]]?.[0])?.value ?? 0;
+  const v1   = getCardById(gs.hands[uids[1]]?.[0])?.value ?? 0;
+  if      (v0 > v1) gs.winner = uids[0];
+  else if (v1 > v0) gs.winner = uids[1];
+  else              gs.winner = "draw";
   gs.status    = "finished";
   gs.endReason = "deckEmpty";
-  gs.log.push({
-    turn : gs.turnNumber,
-    text : `📦 デッキ切れ！手札比較で勝敗決定。`
-  });
+  gs.log.push({ turn: gs.turnNumber, text: `📦 山札切れ！手札比較で決着！` });
+}
+
+// ===================================================
+// ユーティリティ
+// ===================================================
+function deepCopy(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+async function saveGameState(roomId, gs) {
+  const roomRef = doc(db, "rooms", roomId);
+  await updateDoc(roomRef, { gameState: gs });
 }
