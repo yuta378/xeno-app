@@ -119,15 +119,10 @@ function listenGame() {
       return;
     }
 
-    // 賢者の選択（自分のターン）
-    if (isMyTurn && gs.sageActive[currentUser.uid] && gs.deck.length >= 3) {
-      if (!gs.sageChoices) {
-        await drawSageCards(gs);
-        return;
-      } else {
-        showSageModal(gs.sageChoices);
-        return;
-      }
+       // 賢者の選択（即時発動・ターン関係なく自分が使った場合）
+    if (gs.sagePending && gs.sagePending.actingUid === currentUser.uid && gs.sageChoices) {
+      showSageModal(gs.sageChoices);
+      return;
     }
 
     // 自分のターン処理
@@ -156,17 +151,7 @@ async function drawCard(gs) {
   await updateDoc(roomRef, { gameState: newGs });
 }
 
-// ===== 賢者：3枚引く =====
-async function drawSageCards(gs) {
-  const newGs   = JSON.parse(JSON.stringify(gs));
-  const choices = [];
-  for (let i = 0; i < 3 && newGs.deck.length > 0; i++) {
-    choices.push(newGs.deck.pop());
-  }
-  newGs.sageChoices = choices;
-  const roomRef = doc(db, "rooms", roomId);
-  await updateDoc(roomRef, { gameState: newGs });
-}
+
 
 // ===== 手札カードクリック =====
 document.getElementById("myCards").addEventListener("click", (e) => {
