@@ -460,3 +460,93 @@ body {
 .result-card-show .card-emoji { font-size: 24px; }
 .result-card-show .card-name  { font-size: 16px; font-weight: bold; }
 .result-card-show .card-value { color: #e2b96f; font-size: 20px; font-weight: bold; }
+
+/* ===== カード効果一覧ボタン ===== */
+.card-list-btn-wrap {
+  text-align: right;
+  padding: 6px 16px 0;
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.btn-card-list {
+  background: none;
+  border: 1px solid #2a3a5a;
+  color: #888;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.btn-card-list:hover {
+  color: #e2b96f;
+  border-color: #e2b96f;
+}
+
+/* ===== カード効果一覧モーダル ===== */
+.card-list-modal {
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 20px 16px;
+}
+
+.card-list-modal h3 {
+  font-size: 18px;
+  color: #e2b96f;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.card-list-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-list-item {
+  background-color: #0f3460;
+  border: 1px solid #2a3a5a;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.card-list-item.highlight {
+  border-color: #e2b96f44;
+  background-color: #1a2a4a;
+}
+
+.cli-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cli-emoji { font-size: 18px; }
+
+.cli-name {
+  font-size: 14px;
+  font-weight: bold;
+  color: #eaeaea;
+  flex: 1;
+}
+
+.cli-val {
+  font-size: 16px;
+  font-weight: bold;
+  color: #e2b96f;
+}
+
+.cli-count {
+  font-size: 11px;
+  color: #666;
+}
+
+.cli-desc {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+  margin: 0;
+}
